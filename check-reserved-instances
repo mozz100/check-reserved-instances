@@ -19,10 +19,14 @@ conn = ec2.connect_to_region(args.region, aws_access_key_id=args.aws_access_key,
 
 instances = sum([x.instances for x in conn.get_all_instances()], [])
 
-running_instances = {}
+running_ondemand_instances = {}
+running_spot_instances = {}
 for i in instances:
     if i.state == 'running':
-        running_instances[(i.instance_type, i.placement)] = running_instances.get((i.instance_type, i.placement), 0 ) + 1
+        if i.spot_instance_request_id is None:
+            running_ondemand_instances[(i.instance_type, i.placement)] = running_ondemand_instances.get((i.instance_type, i.placement), 0 ) + 1
+        else:
+            running_spot_instances[(i.instance_type, i.placement)] = running_spot_instances.get((i.instance_type, i.placement), 0 ) + 1
 
 reserved_instances = {}
 soon_expire_ri = {}
@@ -34,11 +38,11 @@ for ri in conn.get_all_reserved_instances():
     if (expire_time - time.time()) < args.warn_time * 86400:
         soon_expire_ri[ri.id] = (ri.instance_type, ri.availability_zone, expire_time)
 
-diff = dict([(x, reserved_instances[x] - running_instances.get(x, 0)) for x in reserved_instances])
+diff = dict([(x, reserved_instances[x] - running_ondemand_instances.get(x, 0)) for x in reserved_instances])
 
-for pkey in running_instances:
+for pkey in running_ondemand_instances:
     if pkey not in reserved_instances:
-        diff[pkey] = -running_instances[pkey]
+        diff[pkey] = -running_ondemand_instances[pkey]
 
 unused_ri = dict((k, v) for k, v in diff.iteritems() if v > 0)
 
@@ -66,8 +70,16 @@ if not unreserved_instances:
     print("\tNone")
 print("")
 
-print("Running on-demand instances:   %s" % sum(running_instances.values()))
+print("Spot instances:")
+for k, v in running_spot_instances.iteritems():
+    print("\t(%s)\t%s\t%s" %(v, k[0], k[1]))
+if not running_spot_instances:
+    print("\tNone")
+print("")
+
+print("Running on-demand instances:   %s" % sum(running_ondemand_instances.values()))
 print("Reserved instances:            %s" % sum(reserved_instances.values()))
+print("Spot instances:                %s" % sum(running_spot_instances.values()))
 print("")
 
 
